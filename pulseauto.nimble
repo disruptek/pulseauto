@@ -1,4 +1,4 @@
-version = "1.0.0"
+version = "1.0.1"
 author = "disruptek"
 description = "setup pulseaudio stream levels via app names or pids"
 license = "MIT"

@@ -13,8 +13,11 @@ use-case:
 
 ]##
 import std/sequtils
+import std/strutils
 import std/os
 import std/json
+import std/logging
+import std/nre
 
 import cligen
 
@@ -23,6 +26,10 @@ import dbus/lowlevel
 
 {.experimental: "dotOperators".}
 {.experimental: "callOperator".}
+
+const
+  lookupPath = ObjectPath"/org/pulseaudio/server_lookup1"
+  maxLevel = 65535'u32
 
 type
   Interface* = object
@@ -35,8 +42,19 @@ type
     iface*: Interface
     name*: string
 
-const
-  lookupPath = ObjectPath"/org/pulseaudio/server_lookup1"
+  LevelKind = enum
+    Ratio
+    Raw
+    Percent
+
+  Level = object
+    case kind: LevelKind
+    of Ratio:
+      ratio: range[0.0'f32 .. 3.0'f32]
+    of Percent:
+      percent: range[0'u32 .. 100'u32]
+    of Raw:
+      raw: range[0'u32 .. maxLevel]
 
 proc getBus*(path: DBusValue): Bus =
   ## open a new bus connection at the given address
@@ -46,12 +64,11 @@ proc getBus*(path: DBusValue): Bus =
     path = path.stringValue
     conn = dbus_connection_open(path.cstring, error)
   if conn == nil:
-    echo "unable to connect"
-    quit(1)
-  if error != nil:
-    echo error.repr
-    quit(1)
-  result = Bus(conn: conn)
+    error "unable to connect via " & path
+  elif error != nil:
+    error error.repr
+  else:
+    result = Bus(conn: conn)
 
 proc toJson*(value: DbusValue): JsonNode =
   case value.kind
@@ -216,11 +233,14 @@ when false:
 
 proc getPulseServerAddress*(path = lookupPath): DBusValue =
   let
-    iface = Interface(bus: getBus(DBUS_BUS_SESSION),
-                      service: "org.pulseaudio.Server",
-                      path: path,
-                      name: "org.freedesktop.DBus.Properties")
-  result = iface{"Get"}("org.PulseAudio.ServerLookup1", "Address")
+    bus = getBus(DBUS_BUS_SESSION)
+  if bus == nil:
+    result = asDbusValue(nil)
+  else:
+    let
+      iface = Interface(bus: bus, service: "org.pulseaudio.Server",
+                        path: path, name: "org.freedesktop.DBus.Properties")
+    result = iface{"Get"}("org.PulseAudio.ServerLookup1", "Address")
 
 iterator items*(value: DBusValue): DBusValue =
   case value.kind
@@ -240,8 +260,36 @@ iterator pairs*(value: DBusValue): tuple[key: DBusValue; val: DBusValue] =
   else:
     raise newException(OSError, $value)
 
-when isMainModule:
+proc parseLevel(input: string): Level =
+  ## parse a level from a string
+  if input.endsWith "%":
+    result = Level(kind: Percent, percent: uint32 input[0 .. ^2].parseInt)
+  elif input.contains ".":
+    result = Level(kind: Ratio, ratio: float32 input.parseFloat)
+  else:
+    result = Level(kind: Raw, raw: uint32 input.parseInt)
+
+proc parseLevel(value: DBusValue): Level =
+  ## parse the first channel
+  for channel in value.items:
+    result = Level(kind: Raw, raw: channel.uint32Value)
+    break
+
+proc renderLevel(level: Level; versus: Level): uint32 =
+  case level.kind
+  of Percent:
+    result = uint32 (maxLevel.float32 * level.percent.float32 / 100'f32)
+  of Ratio:
+    result = uint32 (versus.raw.float32 * level.ratio)
+  of Raw:
+    result = level.raw
+
+proc pulseauto*(level: string; client = "(mpd|pianobar)";
+                property = "application\\.process\\.binary") =
   let
+    level = parseLevel(level)
+    property = re(property)
+    rx = re(client)
     address = getPulseServerAddress()
     core1 = Interface(bus: getBus(address),
                       path: ObjectPath"/org/pulseaudio/core1",
@@ -255,32 +303,47 @@ when isMainModule:
     # reset the path and interface name
     client.path = path.objectPathValue
     client.name = core1.name & "." & "Client"
-    echo "client:", client.path
+    debug "client: ", client.path
     # now we'll issue some calls on the client's interface
     let
       getr = client{"Get"}
       props = getr($client, "PropertyList")
     # iterate over the properties; it's basically a dictionary
     for key, val in props.pairs:
+      let
+        key = key.stringValue
       # but the values are arrays of bytes terminated by a 0
       # so turn that shit into a string
-      let
-        value = val.toString
-      # dump it out
-      echo "\t", key, " -> ", value
-      if key == "application.process.binary":
-        # if it looks like it produces music
-        if value in ["pianobar", "mpd"]:
-          # iterate over the client's streams
-          for path in getr($client, "PlaybackStreams"):
-            echo "\t stream:", path
-            # address a stream interface that is a child of Core1
-            var
-              stream = client.peer(core1.name & "." & "Stream")
-            # point at the path of the playback stream we found
-            stream.path = ObjectPath($path)
-            # set the volume on that stream to 25_000 / 65_535
-            # provide multiple values in the variant array to
-            # set the volumes of multiple channels at once
-            discard stream{"Set"}($stream, "Volume",
-                                  newVariant[seq[uint32]](@[25_000.uint32]))
+      debug "\t", key, " -> ", val.toString
+      if key.contains(property) and val.toString.contains(rx):
+        # iterate over the client's streams
+        for path in getr($client, "PlaybackStreams"):
+          debug "\t stream:", path
+          # address a stream interface that is a child of Core1
+          var
+            stream = client.peer(core1.name & "." & "Stream")
+            versus: Level
+          # point at the path of the playback stream we found
+          stream.path = ObjectPath($path)
+          # set the volume on that stream to 25_000 / 65_535
+          # provide multiple values in the variant array to
+          # set the volumes of multiple channels at once
+          case level.kind
+          of Ratio:
+            versus = parseLevel(stream{"Get"}($stream, "Volume"))
+          else:
+            versus = Level(kind: Raw, raw: maxLevel)
+          let
+            rendered = renderLevel(level, versus)
+            volume = newVariant[seq[uint32]](@[rendered])
+          discard stream{"Set"}($stream, "Volume", volume)
+
+when isMainModule:
+  when defined(release) or defined(danger):
+    let level = lvlWarn
+  else:
+    let level = lvlAll
+  let logger = newConsoleLogger(useStderr=true, levelThreshold=level)
+  addHandler(logger)
+
+  dispatch pulseauto
