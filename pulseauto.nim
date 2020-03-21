@@ -115,7 +115,7 @@ proc toJson*(value: DbusValue): JsonNode =
   else:
     result = newJNull()
 
-converter toBool(b: dbus_bool_t): bool =
+converter toBool*(b: dbus_bool_t): bool =
   result = cast[uint32](b) == 1
 
 template queryBusImpl(meth: Method; args: typed): untyped =
