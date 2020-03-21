@@ -24,6 +24,9 @@ import cligen
 import dbus
 import dbus/lowlevel
 
+when defined(pulseautoWrapper):
+  import wrapper
+
 {.experimental: "dotOperators".}
 {.experimental: "callOperator".}
 
