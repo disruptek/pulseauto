@@ -321,25 +321,26 @@ proc pulseauto*(level: string; client = "(mpd|pianobar)";
       if key.contains(property) and val.toString.contains(rx):
         # iterate over the client's streams
         for path in getr($client, "PlaybackStreams"):
-          debug "\t stream:", path
-          # address a stream interface that is a child of Core1
-          var
-            stream = client.peer(core1.name & "." & "Stream")
-            versus: Level
-          # point at the path of the playback stream we found
-          stream.path = ObjectPath($path)
-          # set the volume on that stream to 25_000 / 65_535
-          # provide multiple values in the variant array to
-          # set the volumes of multiple channels at once
-          case level.kind
-          of Ratio:
-            versus = parseLevel(stream{"Get"}($stream, "Volume"))
-          else:
-            versus = Level(kind: Raw, raw: maxLevel)
-          let
-            rendered = renderLevel(level, versus)
-            volume = newVariant[seq[uint32]](@[rendered])
-          discard stream{"Set"}($stream, "Volume", volume)
+          if path.kind == dtObjectPath:
+            debug "\t stream:", path.kind, $path
+            # address a stream interface that is a child of Core1
+            var
+              stream = client.peer(core1.name & "." & "Stream")
+              versus: Level
+            # point at the path of the playback stream we found
+            stream.path = ObjectPath($path)
+            # set the volume on that stream to 25_000 / 65_535
+            # provide multiple values in the variant array to
+            # set the volumes of multiple channels at once
+            case level.kind
+            of Ratio:
+              versus = parseLevel(stream{"Get"}($stream, "Volume"))
+            else:
+              versus = Level(kind: Raw, raw: maxLevel)
+            let
+              rendered = renderLevel(level, versus)
+              volume = newVariant[seq[uint32]](@[rendered])
+            discard stream{"Set"}($stream, "Volume", volume)
 
 when isMainModule:
   when defined(release) or defined(danger):
