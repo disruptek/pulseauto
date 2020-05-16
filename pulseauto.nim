@@ -32,7 +32,8 @@ when defined(pulseautoWrapper):
 
 const
   lookupPath = ObjectPath"/org/pulseaudio/server_lookup1"
-  maxLevel = 65535'u32
+  nominalHead = uint32 65535
+  maxLevel = uint32(nominalHead.float * 1.5)
 
 type
   Interface* = object
@@ -55,7 +56,7 @@ type
     of Ratio:
       ratio: range[0.0'f32 .. 3.0'f32]
     of Percent:
-      percent: range[0'u32 .. 100'u32]
+      percent: range[0'u32 .. 150'u32]
     of Raw:
       raw: range[0'u32 .. maxLevel]
 
@@ -112,7 +113,7 @@ proc toJson*(value: DbusValue): JsonNode =
   of dtInt64:
     result = newJInt(value.int64Value)
   of dtByte:
-    result = newJInt(value.byteValue.int)
+    result = newJString("" & value.byteValue.char)
   of dtVariant:
     result = value.variantValue.toJson
   else:
@@ -150,28 +151,79 @@ proc peer*(iface: Interface; name: string): Interface =
   result = iface
   result.name = name
 
-proc toString*(value: DBusValue): string =
-  ## turn an array of bytes ending in zero into a string
-  for element in value.arrayValue:
-    if element.byteValue == 0:
+iterator items*(value: DBusValue): DBusValue =
+  case value.kind
+  of dtArray:
+    for item in value.arrayValue.items:
+      yield item
+  else:
+    raise newException(OSError, $value)
+
+iterator pairs*(value: DBusValue): tuple[key: DBusValue; val: DBusValue] =
+  case value.kind
+  of dtArray:
+    if value.arrayValueType.kind != dtDictEntry:
+      raise newException(ValueError, "not a dictionary")
+    for pair in value.items:
+      yield (key: pair.dictKey, val: pair.dictValue)
+  else:
+    raise newException(OSError, $value)
+
+proc toCstring(value: DBusValue): cstring =
+  assert value.kind == dtArray
+  #assert value.arrayValueType == dtByte, "obj versus enum... fite!"
+  assert value.arrayValueType.kind == dtByte, $value.arrayValueType
+  result = cast[cstring](alloc(sizeof(char) * len(value.arrayValue)))
+  for i, v in value.arrayValue.pairs:
+    result[i] = v.byteValue.char
+    if v.byteValue.char == '\0':
       break
-    else:
-      result.add element.byteValue.char
 
 proc `$`*(iface: Interface): string = result = iface.name
 proc `$`*(sig: Signature): string = result = sig.string
 proc `$`*(path: ObjectPath): string = result = path.string
 
 proc `$`(value: DBusValue): string =
-  result = case value.kind
+  case value.kind
   of dtString:
-    value.stringValue
+    result = value.stringValue
   of dtObjectPath:
-    value.objectPathValue.string
+    result = value.objectPathValue.string
   of dtSignature:
-    value.signatureValue.string
+    result = value.signatureValue.string
+  of dtDictEntry:
+    result = $value.dictKey & ": " & $value.dictValue
+  of dtUint64:
+    result = $value.uint64Value
+  of dtUint32:
+    result = $value.uint32Value.uint64
+  of dtUint16:
+    result = $value.uint16Value
+  of dtInt16:
+    result = $value.int16Value
+  of dtInt32:
+    result = $value.int32Value
+  of dtInt64:
+    result = $value.int64Value
+  of dtBool:
+    result = $value.boolValue
+  of dtNull:
+    result = "💣"
+  of dtArray:
+    case value.arrayValueType.kind
+    of dtByte:
+      # it's basically a cstring
+      result.add quoteShell($toCstring(value))
+    of dtDictEntry:
+      result.add "{\n"
+      result.add mapIt(value.arrayValue, "\t\t\t" & $it).join(",\n")
+      result.add "\n}"
+    else:
+      result = "[ "
+      result.add mapIt(value.arrayValue, $it).join(", ")
+      result.add " ]"
   else:
-    dbus.`$`(value)
+    result = dbus.`$`(value)
 
 proc `==`(value: DBusValue; s: string): bool =
   if value.kind notin {dtString, dtObjectPath, dtSignature}:
@@ -244,24 +296,8 @@ proc getPulseServerAddress*(path = lookupPath): DBusValue =
       iface = Interface(bus: bus, service: "org.pulseaudio.Server",
                         path: path, name: "org.freedesktop.DBus.Properties")
     result = iface{"Get"}("org.PulseAudio.ServerLookup1", "Address")
-
-iterator items*(value: DBusValue): DBusValue =
-  case value.kind
-  of dtArray:
-    for item in value.arrayValue.items:
-      yield item
-  else:
-    raise newException(OSError, $value)
-
-iterator pairs*(value: DBusValue): tuple[key: DBusValue; val: DBusValue] =
-  case value.kind
-  of dtArray:
-    if value.arrayValueType.kind != dtDictEntry:
-      raise newException(ValueError, "not a dictionary")
-    for pair in value.items:
-      yield (key: pair.dictKey, val: pair.dictValue)
-  else:
-    raise newException(OSError, $value)
+  when not defined(release):
+    echo $result
 
 proc parseLevel(input: string): Level =
   ## parse a level from a string
@@ -281,18 +317,34 @@ proc parseLevel(value: DBusValue): Level =
 proc renderLevel(level: Level; versus: Level): uint32 =
   case level.kind
   of Percent:
-    result = uint32 (maxLevel.float32 * level.percent.float32 / 100'f32)
+    result = uint32 (nominalHead.float32 * level.percent.float32 / 100'f32)
   of Ratio:
     result = uint32 (versus.raw.float32 * level.ratio)
   of Raw:
     result = level.raw
 
+proc setVolume(stream: Interface; level: Level) =
+  var
+    versus: Level
+  case level.kind
+  of Ratio:
+    versus = parseLevel(stream{"Get"}($stream, "Volume"))
+  else:
+    versus = Level(kind: Raw, raw: maxLevel)
+  let
+    rendered = renderLevel(level, versus)
+    volume = newVariant[seq[uint32]](@[rendered])
+  discard stream{"Set"}($stream, "Volume", volume)
+
 proc pulseauto*(level: string; client = "(mpd|pianobar)";
+                key = ""; value = "";
                 property = "application\\.process\\.binary") =
   let
     level = parseLevel(level)
     property = re(property)
     rx = re(client)
+    keyrx = re(if key == "": "." else: key)
+    valuerx = re(if value == "": "." else: value)
     address = getPulseServerAddress()
     core1 = Interface(bus: getBus(address),
                       path: ObjectPath"/org/pulseaudio/core1",
@@ -313,34 +365,44 @@ proc pulseauto*(level: string; client = "(mpd|pianobar)";
       props = getr($client, "PropertyList")
     # iterate over the properties; it's basically a dictionary
     for key, val in props.pairs:
-      let
-        key = key.stringValue
       # but the values are arrays of bytes terminated by a 0
       # so turn that shit into a string
-      debug "\t", key, " -> ", val.toString
-      if key.contains(property) and val.toString.contains(rx):
+      debug "\to ", $key, " -> ", $val
+      if property in $key and rx in $val:
         # iterate over the client's streams
-        for path in getr($client, "PlaybackStreams"):
-          if path.kind == dtObjectPath:
-            debug "\t stream:", path.kind, $path
-            # address a stream interface that is a child of Core1
-            var
-              stream = client.peer(core1.name & "." & "Stream")
-              versus: Level
-            # point at the path of the playback stream we found
-            stream.path = ObjectPath($path)
-            # set the volume on that stream to 25_000 / 65_535
-            # provide multiple values in the variant array to
-            # set the volumes of multiple channels at once
-            case level.kind
-            of Ratio:
-              versus = parseLevel(stream{"Get"}($stream, "Volume"))
-            else:
-              versus = Level(kind: Raw, raw: maxLevel)
-            let
-              rendered = renderLevel(level, versus)
-              volume = newVariant[seq[uint32]](@[rendered])
-            discard stream{"Set"}($stream, "Volume", volume)
+        for category in ["RecordStreams", "PlaybackStreams"]:
+          for path in getr($client, category):
+            if path.kind == dtObjectPath:
+              debug "\t stream:", path.kind, $path
+              # address a stream interface that is a child of Core1
+              var
+                stream = client.peer(core1.name & "." & "Stream")
+              # point at the path of the playback stream we found
+              stream.path = ObjectPath($path)
+              case category
+              of "RecordStreams":
+                let
+                  device = stream{"Get"}($stream, "Device")
+                when true:
+                  assert device.kind == dtObjectPath
+                  var
+                    dev = client.peer(core1.name & "." & "Device")
+                  dev.path = ObjectPath($device)
+                when true:
+                  let
+                    pros = dev{"GetAll"}($dev)
+                  for key, val in pros.pairs:
+                    debug "\t\t.", key, " -> ", val
+                    if keyrx in $key:
+                      if valuerx in $val:
+                        echo "BINGO"
+                        when false:
+                          stream.setVolume(level)
+              of "PlaybackStreams":
+                # set the volume on that stream to 25_000 / 65_535
+                # provide multiple values in the variant array to
+                # set the volumes of multiple channels at once
+                stream.setVolume(level)
 
 when isMainModule:
   when defined(release) or defined(danger):

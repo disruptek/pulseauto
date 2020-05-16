@@ -2,11 +2,12 @@ version = "1.0.5"
 author = "disruptek"
 description = "setup pulseaudio stream levels via app names or pids"
 license = "MIT"
+
 requires "nim >= 1.0.0"
 requires "cligen >= 0.9.40"
 requires "https://github.com/disruptek/cutelog >= 1.1.2"
 requires "dbus"
-
+requires "https://github.com/disruptek/deebus"
 requires "nimterop >= 0.4.4"
 
 bin = @["pulseauto"]
