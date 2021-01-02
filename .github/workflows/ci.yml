@@ -45,7 +45,7 @@ jobs:
         shell: bash
         run: |
           cd pulseauto
-          nimble --accept install
+          nimble --accept --depsOnly install
           nimble test
 
       - name: Build docs
