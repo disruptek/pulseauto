@@ -60,6 +60,9 @@ type
     of Raw:
       raw: range[0'u32 .. maxLevel]
 
+proc `$`(err: ptr DBusError): string =
+  "$#: $#" % [ $err[].name, $err[].message ]
+
 proc getBus*(path: DBusValue): Bus =
   ## open a new bus connection at the given address
   var
@@ -70,7 +73,7 @@ proc getBus*(path: DBusValue): Bus =
   if conn == nil:
     error "unable to connect via " & path
   elif error != nil:
-    error error.repr
+    error $error
   else:
     result = Bus(conn: conn)
 
