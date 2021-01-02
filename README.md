@@ -1,8 +1,8 @@
 # pulseauto
 
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/disruptek/frosty?style=flat)](https://github.com/disruptek/frosty/releases/latest)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/disruptek/pulseauto?style=flat)](https://github.com/disruptek/pulseauto/releases/latest)
 ![Minimum supported Nim version](https://img.shields.io/badge/nim-1.0.11%2B-informational?style=flat&logo=nim)
-[![License](https://img.shields.io/github/license/disruptek/frosty?style=flat)](#license)
+[![License](https://img.shields.io/github/license/disruptek/pulseauto?style=flat)](#license)
 [![buy me a coffee](https://img.shields.io/badge/donate-buy%20me%20a%20coffee-orange.svg)](https://www.buymeacoffee.com/disruptek)
 
 ## Usage
