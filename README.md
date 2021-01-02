@@ -1,5 +1,6 @@
 # pulseauto
 
+[![Test Matrix](https://github.com/disruptek/pulseauto/workflows/CI/badge.svg)](https://github.com/disruptek/pulseauto/actions?query=workflow%3ACI)
 [![GitHub release (latest by date)](https://img.shields.io/github/v/release/disruptek/pulseauto?style=flat)](https://github.com/disruptek/pulseauto/releases/latest)
 ![Minimum supported Nim version](https://img.shields.io/badge/nim-1.0.11%2B-informational?style=flat&logo=nim)
 [![License](https://img.shields.io/github/license/disruptek/pulseauto?style=flat)](#license)
