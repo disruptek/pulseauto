@@ -1,0 +1,17 @@
+Interface	pulseauto.html#Interface	pulseauto: Interface	
+Method	pulseauto.html#Method	pulseauto: Method	
+getBus	pulseauto.html#getBus,DbusValue	pulseauto: getBus(path: DbusValue): Bus	
+toJson	pulseauto.html#toJson,DbusValue	pulseauto: toJson(value: DbusValue): JsonNode	
+toBool	pulseauto.html#toBool.c,dbus_bool_t	pulseauto: toBool(b: dbus_bool_t): bool	
+peer	pulseauto.html#peer,Interface,string	pulseauto: peer(iface: Interface; name: string): Interface	
+items	pulseauto.html#items.i,DbusValue	pulseauto: items(value: DbusValue): DbusValue	
+pairs	pulseauto.html#pairs.i,DbusValue	pulseauto: pairs(value: DbusValue): tuple[key: DbusValue, val: DbusValue]	
+`$`	pulseauto.html#$,Interface	pulseauto: `$`(iface: Interface): string	
+`$`	pulseauto.html#$,Signature	pulseauto: `$`(sig: Signature): string	
+`$`	pulseauto.html#$,ObjectPath	pulseauto: `$`(path: ObjectPath): string	
+`[]`	pulseauto.html#[],Interface,string	pulseauto: `[]`(iface: Interface; name: string): Method	
+`{}`	pulseauto.html#{},Interface,string	pulseauto: `{}`(iface: Interface; name: string): Method	
+`/`	pulseauto.html#/,Interface,string	pulseauto: `/`(iface: Interface; name: string): Interface	
+`()`	pulseauto.html#(),Method,varargs[DbusValue,asDBusValue]	pulseauto: `()`(meth: Method; args: varargs[DbusValue, asDBusValue]): DbusValue	
+getPulseServerAddress	pulseauto.html#getPulseServerAddress	pulseauto: getPulseServerAddress(path = lookupPath): DbusValue	
+pulseauto	pulseauto.html#pulseauto,string,string,string,string,string	pulseauto: pulseauto(level: string; client = &quot;(mpd|pianobar)&quot;; key = &quot;&quot;; value = &quot;&quot;;\n          property = &quot;application\\.process\\.binary&quot;)	
