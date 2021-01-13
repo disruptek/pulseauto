@@ -1,9 +1,10 @@
-version = "1.0.6"
+version = "1.0.7"
 author = "disruptek"
 description = "setup pulseaudio stream levels via app names or pids"
 license = "MIT"
 
-requires "https://github.com/disruptek/testes >= 0.8.0 & < 1.0.0"
+when not defined(release):
+  requires "https://github.com/disruptek/testes >= 1.0.0 & < 2.0.0"
 requires "cligen >= 0.9.40"
 requires "dbus"
 
